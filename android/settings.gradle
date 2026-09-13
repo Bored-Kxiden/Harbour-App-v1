@@ -12,11 +12,12 @@ project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor
    done nothing wrong: Android Studio syncs Gradle the moment the folder opens,
    whether or not they have got to the terminal yet. So say what is missing. */
 if (!file('../node_modules/@capacitor/android').exists()) {
+    def home = settingsDir.parentFile   // the folder with package.json
     throw new GradleException(
         "\n\n" +
         "  Harbour's dependencies have not been installed yet.\n\n" +
-        "  In a terminal, from the folder ABOVE this one (the one with\n" +
-        "  package.json in it), run:\n\n" +
+        "  In a terminal, run:\n\n" +
+        "      cd ${home}\n" +
         "      npm install\n" +
         "      npm run sync\n\n" +
         "  then, in Android Studio, File > Sync Project with Gradle Files.\n" +

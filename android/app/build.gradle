@@ -47,21 +47,31 @@ apply from: 'capacitor.build.gradle'
 /* The interface itself is not in git: it is the output of `npm run sync`, which
    builds the web app and copies it into src/main/assets/public. Without it the
    APK still installs and still opens -- to a blank white screen, with nothing
-   anywhere saying why. Fail here instead, where there is room to say what to do. */
+   anywhere saying why. Fail here instead, where there is room to say what to do.
+
+   The message names the folder by its real path rather than describing where it
+   is. "The folder above this one" is ambiguous when the file reporting the
+   error is android/app/build.gradle: above it could mean android, and typing
+   npm install there does nothing useful. */
 afterEvaluate {
     tasks.named('preBuild').configure {
         doFirst {
-            if (!file('src/main/assets/public/index.html').exists()) {
-                throw new GradleException(
-                    "\n\n" +
-                    "  Harbour's interface has not been built yet, so there is nothing to\n" +
-                    "  put in the app.\n\n" +
-                    "  In a terminal, from the folder ABOVE this one (the one with\n" +
-                    "  package.json in it), run:\n\n" +
-                    "      npm install\n" +
-                    "      npm run sync\n\n" +
-                    "  then press Run again. You only need `npm install` the first time.\n"
-                )
+            def web = file('src/main/assets/public/index.html')
+            if (!web.exists()) {
+                def home = rootProject.projectDir.parentFile   // the folder with package.json
+                def built = new File(home, 'out/index.html').exists()
+                def what = built
+                    ? "  The interface has been built, but it has not been copied into the\n" +
+                      "  Android project yet. Run just the second half:\n\n" +
+                      "      cd ${home}\n" +
+                      "      npx cap sync android\n"
+                    : "  Harbour's interface has not been built yet, so there is nothing to\n" +
+                      "  put in the app. In a terminal, run:\n\n" +
+                      "      cd ${home}\n" +
+                      "      npm run sync\n\n" +
+                      "  That builds the interface and copies it in. If it prints an error,\n" +
+                      "  that error is the real problem -- this one is only its shadow.\n"
+                throw new GradleException("\n\n" + what + "\n  Then press Run again.\n")
             }
         }
     }
