@@ -255,6 +255,14 @@ function SignIn() {
 
   const go = async () => {
     setError(undefined)
+    /* The name is asked for once, here, and nowhere else: setup used to ask a
+       second time and no longer does. So this is the only chance to get one,
+       and an account made without it would go through life unnamed on
+       everybody else's screen. */
+    if (joining && !name.trim()) {
+      setError('A name, so your people know who they are hearing from.')
+      return
+    }
     if (!email.trim() || password.length < 6) {
       setError('An email, and a password of at least six characters.')
       return
@@ -336,8 +344,9 @@ function SignIn() {
             <>
               <label className="label" htmlFor="auth-name">Your name</label>
               <input className="input" id="auth-name" autoComplete="given-name" spellCheck={false}
-                placeholder="What they call you" value={name}
+                maxLength={40} placeholder="What they call you" value={name}
                 onChange={e => setName(e.target.value)}/>
+              <p className="small">This is the name on your messages. You can change it later.</p>
             </>
           )}
 

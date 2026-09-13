@@ -31,6 +31,13 @@ const outboxKey = (userId: string) => `harbour-outbox-${userId}`
 let current: HarborState | undefined
 let owner: string | undefined
 let warned = false
+/* How many writes are on their way to the server right now.
+   It exists because a pull and a push can be in the air at the same time --
+   revalidateOnFocus means every return to the app starts one, and on a phone
+   that is constant: back from the dialer, back from the camera, back from the
+   notification shade. A pull that started before a push landed answers with the
+   row as it was, and handing that to the screen takes the change back off it. */
+let sending = 0
 
 function persist(userId: string, state: HarborState) {
   try { localStorage.setItem(cacheKey(userId), JSON.stringify(state)) } catch {
@@ -87,8 +94,18 @@ async function load(): Promise<HarborState> {
 
   try {
     const fresh = await pull(userId)
-    current = fresh
-    persist(userId, fresh)
+    /* Only when nothing of ours is still in the air. Otherwise this is an
+       answer to a question asked before the last change, and taking it would
+       undo that change on screen -- and worse, leave it as the `before` of the
+       next diff, which is how a deleted row comes back from the dead. The
+       write is already on its way; the next pull will agree with it.
+
+       Unless there is nothing to protect: the very first load has no local
+       state to lose, and a push cannot be outstanding before one exists. */
+    if (sending === 0 || !current) {
+      current = fresh
+      persist(userId, fresh)
+    }
     void drain(userId)
   } catch {
     if (!current) throw new Error('Harbour could not reach your meadow, and this phone has no copy of it yet.')
@@ -114,15 +131,21 @@ export function useHarbor() {
     /* The screen has already moved. If this does not land, it waits in the
        outbox rather than surfacing as an error nobody can act on. */
     const userId = owner
-    void push(before, after, userId).catch(() => queue(userId, { before, after }))
+    sending += 1
+    void push(before, after, userId)
+      .catch(() => queue(userId, { before, after }))
+      .finally(() => { sending -= 1 })
   }
 
   const log = (moment: Moment) => update(s => addMoment(s, moment))
 
   /** Finishing setup. The account already exists by this point; this records
       which side of the phone it is and what to call them. */
-  const start = (mode: Mode, name: string) => {
-    update(s => ({ ...s, mode, name: name.trim() || s.name, setupDone: true }))
+  /* Which side of the phone this is. The name is not passed in any more --
+     there is exactly one place it comes from now, the account, and setup asking
+     for it again only gave it a second chance to disagree with itself. */
+  const start = (mode: Mode) => {
+    update(s => ({ ...s, mode, setupDone: true }))
   }
 
   /** Crossing to the other side of the phone. Nothing is re-seeded any more:
