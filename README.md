@@ -86,17 +86,54 @@ only rings while Harbour is open. Doing it properly means a scheduled local
 notification and, for the walk detection, a foreground service -- a real piece
 of Android work rather than a plugin call, and worth its own pass.
 
-## One thing to do once, in the Supabase dashboard
+## Three things to do once, in the Supabase dashboard
 
-New Supabase projects require every account to confirm its email address before
-it can sign in. For testing with a handful of people that is friction you do not
-want yet:
+None of these can be done from code or from a migration -- they are project
+settings -- so they are the one part of setting Harbour up that has to be
+clicked.
+
+### 1. Turn off email confirmation
 
 **Authentication > Sign In / Providers > Email > turn OFF "Confirm email"**, then
-Save. Accounts work the moment they are made.
+Save. Accounts then work the moment they are made.
 
-If you leave it on, the app handles it properly -- it says "Check your email"
-rather than appearing to hang -- but nobody gets in until they click the link.
+Leave it on and every new account has to follow a link in an email first. The app
+handles that -- it says "Check your email" rather than appearing to hang -- but
+see the next item for why that link is unpleasant.
+
+### 2. Set the Site URL to something real
+
+**Authentication > URL Configuration > Site URL**. A new project has
+`http://localhost:3000`, which is a development web server and does not exist on
+a phone.
+
+This matters because of what a Supabase email link actually does: it goes to
+Supabase, which confirms the account **and then** redirects the browser to the
+Site URL. So the confirmation succeeds and the browser immediately shows "cannot
+open the page" -- a failure message at the exact moment the thing worked. The app
+now warns about this on the Check your email screen, but the real fix is to point
+Site URL at a page that exists.
+
+### 3. Put the code in the password reset email
+
+**Authentication > Emails > Reset Password**, and make sure the template
+includes `{{ .Token }}`:
+
+```html
+<h2>Reset your Harbour password</h2>
+<p>Your code is:</p>
+<p style="font-size:28px;letter-spacing:6px;"><b>{{ .Token }}</b></p>
+<p>Type it into Harbour along with the password you want. It expires shortly.</p>
+```
+
+Supabase's default template only offers `{{ .ConfirmationURL }}`, a link. Harbour
+does not use the link, and the reason is worth stating plainly: **a link opens on
+whichever device read the email.** People read email on a phone and might be
+holding a different one, or a laptop, or an emulator on a PC. A six-digit code
+crosses that gap. A link cannot, no matter how the redirect is configured.
+
+Until this template is changed, "I have forgotten my password" sends an email
+with no code in it and there is no way to finish.
 
 ## The database
 

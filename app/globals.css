@@ -1845,6 +1845,14 @@ html { touch-action: pan-x pan-y }
 .reveal-eye[aria-pressed='true'] { color: var(--leaf) }
 .reveal-eye:active { background: var(--wash) }
 
+/* Six digits copied off another screen. Spaced out and in the mono face so a
+   pair of them cannot be misread as one, and so the eye can check its work. */
+.code-in {
+ font-family: var(--mono); font-size: 25px; letter-spacing: 8px;
+ text-align: center; font-variant-numeric: tabular-nums;
+}
+.code-in::placeholder { letter-spacing: 8px; opacity: .3 }
+
 /* Typing in a code somebody read to you, under your own code. */
 .join { display: flex; flex-direction: column; gap: 6px; padding-top: 13px; border-top: 1.5px solid var(--hairline) }
 .join-row { display: flex; gap: 9px }

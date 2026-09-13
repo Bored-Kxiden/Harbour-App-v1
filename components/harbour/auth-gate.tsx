@@ -81,7 +81,166 @@ function explain(e: unknown) {
     return 'There is already an account with that email. Sign in instead.'
   if (/failed to fetch|network/i.test(said))
     return 'Harbour could not reach the internet just now. Try again in a moment.'
+  if (/token has expired|otp_expired|expired/i.test(said))
+    return 'That code has run out. Send yourself a new one.'
+  if (/invalid.*(token|otp)|otp_disabled/i.test(said))
+    return 'That code is not right. Check the email again -- it is the six digits, not the link.'
+  if (/same.*password|should be different/i.test(said))
+    return 'That is the password you already had. Choose a different one.'
+  if (/rate limit|too many|for security purposes/i.test(said))
+    return 'That was a lot of tries at once. Wait a minute, then go again.'
   return said || 'That did not work. Try again.'
+}
+
+/** A password field with a way to see what is in it, which is the difference
+    between getting back into your account and giving up on a phone keyboard. */
+function Secret({ id, label, value, onChange, onEnter, autoComplete }: {
+  id: string; label: string; value: string; onChange: (v: string) => void
+  onEnter?: () => void; autoComplete: string
+}) {
+  const [shown, setShown] = useState(false)
+  return (
+    <>
+      <label className="label" htmlFor={id}>{label}</label>
+      <div className="reveal">
+        <input className="input" id={id} type={shown ? 'text' : 'password'}
+          autoComplete={autoComplete} autoCapitalize="none" autoCorrect="off"
+          spellCheck={false} value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onEnter?.() }}/>
+        <button type="button" className="reveal-eye" onClick={() => setShown(!shown)}
+          aria-pressed={shown} aria-controls={id}
+          aria-label={shown ? 'Hide the password' : 'Show the password'}>
+          {shown ? <EyeOff aria-hidden="true"/> : <Eye aria-hidden="true"/>}
+        </button>
+      </div>
+    </>
+  )
+}
+
+/** Getting back in, when the password is gone.
+ *
+ *  Deliberately a six-digit code rather than a link. A link has to land on a
+ *  page, that page has to be somewhere Supabase has been told to allow, and --
+ *  the part that actually decides it -- it opens on whichever device read the
+ *  email. People read email on their phone and might be holding a different
+ *  one, or a laptop, or an emulator. A code crosses that gap; a link cannot.
+ *
+ *  It needs one thing from the project: the Reset Password email template has
+ *  to include {{ .Token }}. Supabase's default template only offers the link.
+ */
+function Forgot({ email: initial, onDone, onCancel }: { email: string; onDone: () => void; onCancel: () => void }) {
+  const [stage, setStage] = useState<'ask' | 'code'>('ask')
+  const [email, setEmail] = useState(initial)
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const [sentAt, setSentAt] = useState(0)
+
+  const send = async () => {
+    setError(undefined)
+    if (!email.trim()) { setError('Which email is the account under?'); return }
+    setBusy(true)
+    try {
+      /* No redirectTo: nothing here is ever going to follow a link, and
+         pointing one at a page that does not exist is how somebody ends up
+         staring at a browser error thinking they broke something. */
+      const { error: failed } = await supabase().auth.resetPasswordForEmail(email.trim())
+      if (failed) throw failed
+      /* Whether or not that address has an account behind it, the answer is
+         the same. Saying "no such account" here would turn this screen into a
+         way of finding out who has one. */
+      setStage('code'); setSentAt(Date.now())
+    } catch (e) { setError(explain(e)) } finally { setBusy(false) }
+  }
+
+  const finish = async () => {
+    setError(undefined)
+    const digits = code.replace(/\D/g, '')
+    if (digits.length !== 6) { setError('The code is the six digits in the email.'); return }
+    if (password.length < 6) { setError('A new password of at least six characters.'); return }
+    setBusy(true)
+    try {
+      const db = supabase()
+      /* The code proves it is you and hands back a session; the session is what
+         lets the password be changed. Two steps, and the first can fail on its
+         own, so they are reported separately. */
+      const { error: wrong } = await db.auth.verifyOtp({ email: email.trim(), token: digits, type: 'recovery' })
+      if (wrong) throw wrong
+      const { error: refused } = await db.auth.updateUser({ password })
+      if (refused) throw refused
+      onDone()
+    } catch (e) { setError(explain(e)) } finally { setBusy(false) }
+  }
+
+  const again = Date.now() - sentAt > 30000
+
+  return (
+    <div className="setup">
+      <div className="setup-inner">
+        <Brand/>
+        <div className="setup-step">
+          <h1>{stage === 'ask' ? 'Let us get you back in.' : 'Check your email.'}</h1>
+          <p className="setup-sub">
+            {stage === 'ask'
+              ? 'We will email you a six-digit code. Nothing in your meadow changes until you use it.'
+              : <>We sent six digits to <b>{email.trim()}</b>. Type them here with the new password you want.</>}
+          </p>
+
+          {stage === 'ask' ? (
+            <>
+              <label className="label" htmlFor="forgot-email">Email</label>
+              <input className="input" id="forgot-email" type="email" inputMode="email"
+                autoComplete="email" spellCheck={false} autoFocus value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void send() }}/>
+            </>
+          ) : (
+            <>
+              <label className="label" htmlFor="forgot-code">The six digits</label>
+              {/* No maxLength. The browser applies one to the raw string before
+                  this ever sees it, so a code pasted with anything around it --
+                  a space, a word, the line it sat on in the email -- gets cut
+                  to length first and the digits thrown away with the rest.
+                  Keeping the digits and taking six is the whole rule. */}
+              <input className="input code-in" id="forgot-code" inputMode="numeric"
+                autoComplete="one-time-code" autoFocus placeholder="000000"
+                value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}/>
+              <Secret id="forgot-password" label="Your new password" value={password}
+                onChange={setPassword} onEnter={() => void finish()} autoComplete="new-password"/>
+            </>
+          )}
+
+          {error && <p className="field-error" role="alert">{error}</p>}
+
+          <button type="button" className="btn btn-block setup-go" disabled={busy}
+            onClick={() => void (stage === 'ask' ? send() : finish())}>
+            {busy ? <Loader2 className="spin" aria-hidden="true"/> : null}
+            {stage === 'ask' ? 'Send me a code' : 'Set it and sign in'}
+            {!busy && <ArrowRight aria-hidden="true"/>}
+          </button>
+
+          {stage === 'code' && (
+            <button type="button" className="btn btn-quiet btn-block" disabled={busy || !again}
+              onClick={() => void send()}>
+              {again ? 'Send another code' : 'You can ask for another in a moment'}
+            </button>
+          )}
+          <button type="button" className="btn btn-quiet btn-block" onClick={onCancel}>
+            Back to signing in
+          </button>
+
+          {stage === 'code' && (
+            <p className="note-strip">
+              The email also has a link in it. Ignore the link -- it is meant for a web
+              browser and will not bring you back here. The six digits are what works.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function SignIn() {
@@ -92,7 +251,7 @@ function SignIn() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [checkEmail, setCheckEmail] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
+  const [forgot, setForgot] = useState(false)
 
   const go = async () => {
     setError(undefined)
@@ -124,6 +283,9 @@ function SignIn() {
       setBusy(false)
     }
   }
+
+  if (forgot) return <Forgot email={email} onCancel={() => setForgot(false)}
+    onDone={() => { setForgot(false); setPassword('') }}/>
 
   if (checkEmail) {
     return (
@@ -184,22 +346,8 @@ function SignIn() {
             autoComplete="email" spellCheck={false} value={email}
             onChange={e => setEmail(e.target.value)}/>
 
-          <label className="label" htmlFor="auth-password">Password</label>
-          {/* A password typed blind on a phone keyboard, with no password
-              manager and one shot at getting it right, is how people end up
-              locked out of their own account. The eye is not a nicety. */}
-          <div className="reveal">
-            <input className="input" id="auth-password" type={showPassword ? 'text' : 'password'}
-              autoComplete={joining ? 'new-password' : 'current-password'}
-              autoCapitalize="none" autoCorrect="off" spellCheck={false} value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') void go() }}/>
-            <button type="button" className="reveal-eye" onClick={() => setShowPassword(!showPassword)}
-              aria-pressed={showPassword} aria-controls="auth-password"
-              aria-label={showPassword ? 'Hide the password' : 'Show the password'}>
-              {showPassword ? <EyeOff aria-hidden="true"/> : <Eye aria-hidden="true"/>}
-            </button>
-          </div>
+          <Secret id="auth-password" label="Password" value={password} onChange={setPassword}
+            onEnter={() => void go()} autoComplete={joining ? 'new-password' : 'current-password'}/>
 
           {error && <p className="field-error" role="alert">{error}</p>}
 
@@ -212,6 +360,14 @@ function SignIn() {
             onClick={() => { setJoining(!joining); setError(undefined) }}>
             {joining ? 'I already have an account' : 'I am new here'}
           </button>
+          {/* Only on the signing-in side: offering to recover a password to
+              somebody in the middle of choosing one is just noise. */}
+          {!joining && (
+            <button type="button" className="btn btn-quiet btn-block"
+              onClick={() => { setForgot(true); setError(undefined) }}>
+              I have forgotten my password
+            </button>
+          )}
         </div>
       </div>
     </div>
