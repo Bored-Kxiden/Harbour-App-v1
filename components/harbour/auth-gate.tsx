@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { ArrowRight, Loader2 } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/harbour/supabase'
 import { done } from '@/lib/harbour/native'
 
@@ -63,6 +63,27 @@ function Brand() {
   )
 }
 
+/** Supabase's wording is accurate and unhelpful in equal measure.
+ *
+ *  "Invalid login credentials" is one message for two very different
+ *  situations -- an email with no account behind it, and a password with a
+ *  typo in it -- and it reads, on a phone, as though the app has decided you
+ *  are not who you say you are. The account is usually fine; the password was
+ *  typed blind. Say the useful half of that, and point at the eye.
+ */
+function explain(e: unknown) {
+  const said = e instanceof Error ? e.message : ''
+  if (/invalid login credentials/i.test(said))
+    return 'That email and password do not go together. Tap the eye to check what you typed.'
+  if (/email not confirmed/i.test(said))
+    return 'This account still needs the link in the email we sent you.'
+  if (/already registered|already been registered/i.test(said))
+    return 'There is already an account with that email. Sign in instead.'
+  if (/failed to fetch|network/i.test(said))
+    return 'Harbour could not reach the internet just now. Try again in a moment.'
+  return said || 'That did not work. Try again.'
+}
+
 function SignIn() {
   const [joining, setJoining] = useState(false)
   const [email, setEmail] = useState('')
@@ -71,6 +92,7 @@ function SignIn() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [checkEmail, setCheckEmail] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const go = async () => {
     setError(undefined)
@@ -97,8 +119,7 @@ function SignIn() {
         if (failed) throw failed
       }
     } catch (e) {
-      /* Supabase's own wording is short and plain enough to show as it is. */
-      setError(e instanceof Error ? e.message : 'That did not work. Try again.')
+      setError(explain(e))
     } finally {
       setBusy(false)
     }
@@ -113,7 +134,19 @@ function SignIn() {
             <h1>Check your email.</h1>
             <p className="setup-sub">
               Your account is made. Open the link we sent to {email.trim()}, then come
-              back and sign in.
+              back here and sign in.
+            </p>
+            {/* The link confirms the account on Supabase's own server and only
+                then tries to send the browser somewhere. Where it sends it is
+                whatever Site URL the project has, which for a project nobody
+                has deployed is http://localhost:3000 -- a page that does not
+                exist on a phone. So the browser shows a failure at the exact
+                moment the thing succeeded, which is a horrible thing to do to
+                somebody signing up. Say so before it happens. */}
+            <p className="note-strip">
+              The browser may then say it cannot open the page. That is expected and it
+              does not mean anything went wrong: your account was confirmed before it
+              got that far. Just come back here.
             </p>
             <button type="button" className="btn btn-block setup-go"
               onClick={() => { setCheckEmail(false); setJoining(false) }}>
@@ -152,10 +185,21 @@ function SignIn() {
             onChange={e => setEmail(e.target.value)}/>
 
           <label className="label" htmlFor="auth-password">Password</label>
-          <input className="input" id="auth-password" type="password"
-            autoComplete={joining ? 'new-password' : 'current-password'} value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') void go() }}/>
+          {/* A password typed blind on a phone keyboard, with no password
+              manager and one shot at getting it right, is how people end up
+              locked out of their own account. The eye is not a nicety. */}
+          <div className="reveal">
+            <input className="input" id="auth-password" type={showPassword ? 'text' : 'password'}
+              autoComplete={joining ? 'new-password' : 'current-password'}
+              autoCapitalize="none" autoCorrect="off" spellCheck={false} value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void go() }}/>
+            <button type="button" className="reveal-eye" onClick={() => setShowPassword(!showPassword)}
+              aria-pressed={showPassword} aria-controls="auth-password"
+              aria-label={showPassword ? 'Hide the password' : 'Show the password'}>
+              {showPassword ? <EyeOff aria-hidden="true"/> : <Eye aria-hidden="true"/>}
+            </button>
+          </div>
 
           {error && <p className="field-error" role="alert">{error}</p>}
 

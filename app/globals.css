@@ -1830,6 +1830,21 @@ html { touch-action: pan-x pan-y }
 .person-call[data-on='true']:hover { background: var(--leaf-bright) }
 .person-line .row-body span { font-variant-numeric: tabular-nums }
 
+/* A password field with a way to see what is in it. The eye sits inside the
+   field's own box rather than beside it, so the field keeps its full width and
+   the tap target is where a thumb already is. */
+.reveal { position: relative; display: flex }
+.reveal .input { flex: 1; min-width: 0; padding-right: 50px }
+.reveal-eye {
+ position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+ width: 44px; height: 44px; display: grid; place-items: center;
+ border-radius: 50%; color: var(--ink-soft); transition: color .16s ease, background .16s ease;
+}
+.reveal-eye svg { width: 19px; height: 19px; stroke-width: 1.9 }
+.reveal-eye:hover { color: var(--ink) }
+.reveal-eye[aria-pressed='true'] { color: var(--leaf) }
+.reveal-eye:active { background: var(--wash) }
+
 /* Typing in a code somebody read to you, under your own code. */
 .join { display: flex; flex-direction: column; gap: 6px; padding-top: 13px; border-top: 1.5px solid var(--hairline) }
 .join-row { display: flex; gap: 9px }
