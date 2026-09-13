@@ -90,7 +90,15 @@ lint/tmp/
 *.hprof
 
 # Cordova plugins for Capacitor
-capacitor-cordova-android-plugins
+#
+# Deliberately NOT ignored, which is a change from Capacitor's own template.
+# `cap sync` does regenerate this folder, but app/build.gradle and
+# app/capacitor.build.gradle are both in git and both reference it
+# unconditionally -- so without it a fresh clone cannot even be opened in
+# Android Studio. Gradle syncs the moment you open the folder, long before
+# anybody has had the chance to run npm, and the failure it gives is a stack
+# trace about a missing .gradle file rather than "run npm install".
+# It is four small generated files. Keeping them costs nothing.
 
 # Copied web assets
 app/src/main/assets/public

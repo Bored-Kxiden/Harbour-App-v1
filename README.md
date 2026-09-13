@@ -7,27 +7,35 @@ running inside a native Android shell, with Supabase behind it.
 ## Opening it in Android Studio
 
 You need [Android Studio](https://developer.android.com/studio) and
-[Node.js](https://nodejs.org) (version 20 or newer). Then, once:
+[Node.js](https://nodejs.org) (version 20 or newer).
+
+**Run these two commands before you open Android Studio**, in a terminal in this
+folder -- the one with `package.json` in it:
 
 ```bash
 npm install
-```
-
-And every time you want to see your changes on a phone or emulator:
-
-```bash
 npm run sync
 ```
 
-That builds the interface and copies it into the Android project. Then open
-**the `android` folder** in Android Studio (not this folder -- `android` is the
-Gradle project) and press Run.
+`npm install` fetches the dependencies, including the Android halves of the
+Capacitor plugins, which Gradle expects to find in `node_modules`. `npm run
+sync` builds the interface and copies it into the Android project. You only
+need `npm install` the first time; `npm run sync` again every time you change
+the interface and want to see it on a phone.
+
+Then open **the `android` folder** in Android Studio -- not this folder --
+and press Run.
 
 > Open `android/`, not the repository root. Android Studio looks for a Gradle
 > project, and that is what lives in `android/`.
 
 The first Run downloads the Android SDK pieces Gradle asks for, which takes a
 while. After that it is quick.
+
+If you open `android/` before running those two commands, Gradle will stop and
+tell you so in as many words. That is deliberate: the two things it needs are
+built by npm rather than kept in git, and Android Studio starts syncing Gradle
+the moment the folder opens, whether or not you have got to the terminal yet.
 
 ### Working on the interface without an emulator
 

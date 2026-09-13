@@ -2,4 +2,26 @@ include ':app'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 
+/* Capacitor's plugins are npm packages that happen to contain Android library
+   projects, so capacitor.settings.gradle below points straight into
+   node_modules. If npm has not run, Gradle fails during settings evaluation --
+   before any build file is read, and long before anything could print a useful
+   message -- with a stack trace about a missing project directory.
+
+   Somebody who has just cloned this and opened `android` in Android Studio has
+   done nothing wrong: Android Studio syncs Gradle the moment the folder opens,
+   whether or not they have got to the terminal yet. So say what is missing. */
+if (!file('../node_modules/@capacitor/android').exists()) {
+    throw new GradleException(
+        "\n\n" +
+        "  Harbour's dependencies have not been installed yet.\n\n" +
+        "  In a terminal, from the folder ABOVE this one (the one with\n" +
+        "  package.json in it), run:\n\n" +
+        "      npm install\n" +
+        "      npm run sync\n\n" +
+        "  then, in Android Studio, File > Sync Project with Gradle Files.\n" +
+        "  You need Node.js 20 or newer: https://nodejs.org\n"
+    )
+}
+
 apply from: 'capacitor.settings.gradle'

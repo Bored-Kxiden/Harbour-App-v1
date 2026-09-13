@@ -6,11 +6,18 @@ node_modules/
 .next/
 out/
 
-# the copy of the web build Capacitor keeps inside the Android project
+# the copy of the web build Capacitor keeps inside the Android project.
+# Produced by `npm run sync`; app/build.gradle fails with instructions if it
+# is missing, rather than letting the app install and open to a blank screen.
 android/app/src/main/assets/public/
 android/app/src/main/assets/capacitor.config.json
 android/app/src/main/assets/capacitor.plugins.json
-android/capacitor-cordova-android-plugins/
+
+# NOT ignored, though `cap sync` regenerates it: android/capacitor-cordova-android-plugins/.
+# app/build.gradle and app/capacitor.build.gradle are in git and both reference
+# it unconditionally, so leaving it out made a fresh clone impossible to open in
+# Android Studio -- Gradle syncs the moment you open the folder, long before
+# anyone has had the chance to run npm.
 
 # Android build output and local machine paths
 android/.gradle/
