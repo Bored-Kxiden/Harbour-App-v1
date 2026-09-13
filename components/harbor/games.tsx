@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Check, Copy, Flame, Medal, RotateCcw, Timer } from 'lucide-react'
 import { toast } from 'sonner'
 import { useHarbor } from '@/lib/harbor/store'
+import { redeemInvite } from '@/lib/harbour/remote'
 import { connectStreak, goalsWon, localDay, puzzleResult, weeklyGoals, type PuzzleId } from '@/lib/harbor/model'
 import { makeSudoku, makeTango, makeZip, puzzleMeta, seedRandom, tangoFaults } from '@/lib/harbor/puzzles'
 import { Avatar } from './avatar'
@@ -120,11 +121,60 @@ function Invite() {
    </button>
   </div>
   <p className="small">
-   {state.invite.joined.length
-    ? `${state.invite.joined.length} ${state.invite.joined.length === 1 ? 'person has' : 'people have'} joined with it.`
+   {state.people.length
+    ? `${state.people.length} ${state.people.length === 1 ? 'person is' : 'people are'} in your home.`
     : 'Nobody has used it yet.'}
   </p>
+  <JoinSomeone/>
  </section>
+}
+
+/** The other half of the code: typing in one somebody read to you. Linking is
+    mutual by design, so this single action puts each of you on the other's list
+    and nothing about it needs approving afterwards. */
+function JoinSomeone() {
+ const { state, update } = useHarbor()
+ const [code, setCode] = useState('')
+ const [busy, setBusy] = useState(false)
+ const [error, setError] = useState<string>()
+ if (!state) return null
+
+ const join = async () => {
+  setError(undefined)
+  const typed = code.trim().toUpperCase()
+  if (typed.length < 7) { setError('A code looks like ABC-1234.') ; return }
+  setBusy(true)
+  try {
+   await redeemInvite(typed, state.name)
+   /* Their row now exists on both sides; the next pull brings them in with
+      their weather, their day and anything they have already left for you. */
+   update(s => s)
+   toast.success('You are in each other\u2019s home now.')
+   setCode('')
+  } catch (e) {
+   const message = e instanceof Error ? e.message : ''
+   setError(
+    /does not belong/.test(message) ? 'No code like that. Check it and try again.'
+    : /your own/.test(message) ? 'That is your own code.'
+    : 'That did not go through. Try again in a moment.',
+   )
+  } finally { setBusy(false) }
+ }
+
+ return <div className="join">
+  <label className="label" htmlFor="join-code">Or type in theirs</label>
+  <div className="join-row">
+   <input className="input" id="join-code" value={code} maxLength={8}
+    autoCapitalize="characters" autoComplete="off" spellCheck={false}
+    placeholder="ABC-1234"
+    onChange={e => { setCode(e.target.value); setError(undefined) }}
+    onKeyDown={e => { if (e.key === 'Enter') void join() }}/>
+   <button type="button" className="btn" onClick={() => void join()} disabled={busy || !code.trim()}>
+    {busy ? 'Joining\u2026' : 'Join'}
+   </button>
+  </div>
+  {error && <p className="field-error" role="alert">{error}</p>}
+ </div>
 }
 
 /** A small square mark per puzzle, so the row is recognisable before it is read. */

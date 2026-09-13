@@ -58,6 +58,18 @@ in testing is what ships, to the pixel. The parts a web page genuinely cannot
 do -- placing a call, ringing a cue, sensing that a walk has ended -- are
 Android code that the interface calls into.
 
+## One thing to do once, in the Supabase dashboard
+
+New Supabase projects require every account to confirm its email address before
+it can sign in. For testing with a handful of people that is friction you do not
+want yet:
+
+**Authentication > Sign In / Providers > Email > turn OFF "Confirm email"**, then
+Save. Accounts work the moment they are made.
+
+If you leave it on, the app handles it properly -- it says "Check your email"
+rather than appearing to hang -- but nobody gets in until they click the link.
+
 ## The database
 
 Supabase project **Harbour App** (`nfhijkdownrtftdyyuxm`). There is no
@@ -74,8 +86,17 @@ because an interface promise that the database does not keep is not a promise:
   not the message, not the flower, not that it exists -- until `bloom_at` has
   passed.
 
-Both are covered by the tests in `supabase/migrations/` comments and were
-verified against the live database.
+Both were verified by querying the live database as each user in turn, not by
+reading the policies. The first of those tests is what found that the sharing
+check could never be true: a policy expression runs as the calling user, so
+reading another person's settings row from inside one always failed silently.
+
+### What has not been checked yet
+
+The app's own calls to Supabase have never run: this project was assembled in a
+sandbox whose network policy refuses connections to supabase.co, so sign-in,
+pulling a meadow and pushing a change are written and type-checked but unproven.
+They are the first thing to exercise on a real device.
 
 ### Changing the schema
 
