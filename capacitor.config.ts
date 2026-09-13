@@ -24,6 +24,21 @@ const config: CapacitorConfig = {
       backgroundColor: '#FEFCF5',
       showSpinner: false,
     },
+    Keyboard: {
+      /* Shrink the web view rather than sliding it up. The app is one fixed
+         full-height stage with a card pinned to the bottom of it, so sliding
+         would push the card off the top of the screen; resizing lets the dvh
+         units the layout is built on answer for the keyboard themselves. */
+      resize: 'native',
+      resizeOnFullScreen: true,
+    },
+    StatusBar: {
+      /* The meadow runs under the status bar; the app tints the bar to match
+         and flips the icons when it goes to dusk. */
+      overlaysWebView: false,
+      style: 'LIGHT',
+      backgroundColor: '#9ECDE8',
+    },
   },
 }
 

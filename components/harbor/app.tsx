@@ -4,6 +4,7 @@ import { Bell, Bookmark, CalendarDays, Cloud, CloudLightning, CloudRain, CloudSu
 import { Toaster } from '@/components/ui/sonner'
 import { makeId, useHarbor } from '@/lib/harbor/store'
 import { activePacts, fieldWeather, localDay, rollSnapWindow, snapWindowDue, unseenAlerts, weatherIndex, weathers, type Moment, type Weather } from '@/lib/harbor/model'
+import { skyTop } from '@/lib/harbor/scene'
 import { Home } from './home'
 import { ParentHome } from './parent-home'
 import { Setup } from './setup'
@@ -23,6 +24,7 @@ import { CameraScreen, StoryViewer } from './instants'
 import { SnapPrompt } from './snap'
 import { SectionsOverlay } from './sections'
 import { Tour } from './tour'
+import { followTheme, wireBackButton } from '@/lib/harbour/native'
 
 const weatherIcon: Record<Weather, typeof Sun> = { clear: Sun, bright: CloudSun, cloudy: Cloud, rain: CloudRain, storm: CloudLightning }
 /* Two bars, because the two people holding this phone are not doing the same job.
@@ -107,6 +109,11 @@ export function HarborApp() {
 
  useEffect(() => () => clearTimeout(chipTimer.current), [])
 
+ /* Android's back gesture. Bound once for the life of the app: it reads the
+    route and the open overlays off the DOM each time it fires, so it never
+    needs re-binding when either moves. */
+ useEffect(() => wireBackButton(), [])
+
  /* Safari before 17 ignores touch-action for its own pinch and answers with these
     three events instead. They are bound to the meadow rather than the document, so a
     two-finger pinch on the field still moves the camera while a pinch anywhere else
@@ -132,6 +139,9 @@ export function HarborApp() {
   dark.addEventListener('change', resolve)
   return () => dark.removeEventListener('change', resolve)
  }, [theme])
+ /* The system bars are outside the web view and have to be told separately, or
+    the clock sits white-on-white the moment the meadow goes to dusk. `weather`
+    is read below, so this sits with the rest of the shell effects further down. */
 
  const navigate = (next: string) => { location.hash = next }
  const page = route.split('/')[0]
@@ -143,6 +153,10 @@ export function HarborApp() {
     their child set, which is what they opened the app to find out. */
  const weather = state ? fieldWeather(state) : 'clear'
  const Icon = weatherIcon[weather]
+ /* The strip above the web view is painted to match the top of the sky the
+    meadow is drawing, so the two read as one surface rather than a coloured
+    bar sitting on a picture. */
+ useEffect(() => followTheme(night, skyTop(weather, night)), [night, weather])
  const waiting = state ? unseenAlerts(state) : 0
 
  /* One tap for the thing people actually reach for. Auto is still in Account for

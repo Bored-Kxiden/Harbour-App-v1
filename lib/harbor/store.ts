@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { addMoment, parseState, type HarborState, type Mode, type Moment } from './model'
 import { pull, push } from '@/lib/harbour/remote'
 import { supabase } from '@/lib/harbour/supabase'
+import { knock } from '@/lib/harbour/native'
 
 /** The one place the interface gets its state from.
  *
@@ -70,8 +71,13 @@ function cached(userId: string): HarborState | undefined {
 }
 
 async function load(): Promise<HarborState> {
-  const { data } = await supabase().auth.getUser()
-  const userId = data.user?.id
+  /* getSession, not getUser: getUser asks the server who this is, and on a
+     phone with no signal it throws before the cache below is ever reached --
+     which is the one situation the cache exists for. The session is already on
+     this device, and everything it unlocks is guarded by row level security
+     anyway, so a stale id here can only ever read that user's own rows. */
+  const { data } = await supabase().auth.getSession()
+  const userId = data.session?.user.id
   /* AuthGate does not render the app without a session, so this is a real
      fault rather than a state to design for. */
   if (!userId) throw new Error('Harbour tried to load a meadow with nobody signed in.')
@@ -169,5 +175,8 @@ export function ring(sound: string, times = 3) {
  } catch { return () => {} }
 }
 export function buzz(pattern: number[] = [180, 110, 180, 110, 260]) {
- try { navigator.vibrate?.(pattern) } catch { /* vibration is unavailable or blocked; the cue still shows */ }
+ try { if (navigator.vibrate?.(pattern)) return } catch { /* fall through to the plugin */ }
+ /* A web view without the Vibration API. The plugin can still knock, it just
+    cannot hold a rhythm, so the pattern becomes its own length. */
+ knock(pattern.reduce((a, b) => a + b, 0))
 }

@@ -1,11 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Camera, ChevronRight, GraduationCap, House, ImageUp, LockKeyhole, Maximize, Minimize, Moon, Play, ShieldCheck, Sprout, Sun, SunMoon, Trash2, UserRoundPlus, Waves } from 'lucide-react'
+import { Camera, ChevronRight, GraduationCap, House, ImageUp, LockKeyhole, Maximize, Minimize, Moon, Phone, Play, ShieldCheck, Sprout, Sun, SunMoon, Trash2, UserRoundPlus, Waves } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { chime, makeId, useHarbor } from '@/lib/harbor/store'
 import { clearMedia, saveMedia } from '@/lib/harbor/media'
-import { activePacts, callsFor, initialsOf, localDay, rollSnapWindow, themes, type Mode, type Person, type Tone } from '@/lib/harbor/model'
+import { activePacts, asPhone, callsFor, initialsOf, localDay, rollSnapWindow, themes, type Mode, type Person, type Tone } from '@/lib/harbor/model'
 import { Avatar } from './avatar'
 import { Sprig } from './sprigs'
 
@@ -37,6 +37,9 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
  const [newName, setNewName] = useState('')
  const [removing, setRemoving] = useState<Person | null>(null)
  const [pactFor, setPactFor] = useState<Person | null>(null)
+ /* Whose number is open for editing, and what has been typed into it so far. */
+ const [numbering, setNumbering] = useState<string | null>(null)
+ const [number, setNumber] = useState('')
  if (!state) return null
  const settings = state.settings
  const pactOf = (id: string) => state.pacts.find(p => p.personId === id)
@@ -72,8 +75,12 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
  const addPerson = () => {
   const name = newName.trim()
   if (!name) return
-  const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'friend'}-${makeId().slice(0, 4)}`
-  update(s => ({ ...s, people: [...s.people, { id, name, initials: initialsOf(name), tone: tones[s.people.length % tones.length] }], messages: { ...s.messages, [id]: [] } }))
+  /* The id is the id of the row this becomes in the database, so it is a plain
+     uuid rather than a readable slug. Somebody added this way has no account
+     behind them yet: they sit on the list and can be given a number to ring,
+     and everything else waits until they join with a code. */
+  const id = makeId()
+  update(s => ({ ...s, people: [...s.people, { id, name, initials: initialsOf(name), tone: tones[s.people.length % tones.length], linked: false }], messages: { ...s.messages, [id]: [] } }))
   setNewName(''); setAdding(false)
   toast.success(`${name} is in your list now.`)
  }
@@ -97,6 +104,20 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
    toast.success('Saved on this device only.')
   } catch { toast.error('Your browser would not save that picture. Try a smaller one.') }
  }
+ /* A number to reach somebody on outside Harbour. Kept in the form the phone's
+    own dialer wants, so what is typed is tidied rather than refused: spaces and
+    brackets come off, and only the country code is actually insisted on. */
+ const saveNumber = (person: Person) => {
+  const raw = number.trim()
+  if (raw && !asPhone(raw)) {
+   toast.error('That number needs its country code, like +44 7700 900123.')
+   return
+  }
+  update(s => ({ ...s, people: s.people.map(p => p.id === person.id ? { ...p, phone: asPhone(raw) } : p) }))
+  setNumbering(null); setNumber('')
+  toast.success(raw ? `You can ring ${person.name} from Harbor now.` : `${person.name}'s number has been taken off.`)
+ }
+
  const savePace = (event: React.FormEvent<HTMLFormElement>) => {
   event.preventDefault()
   const f = new FormData(event.currentTarget)
@@ -126,7 +147,12 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
       onChange={e => update(s => ({ ...s, name: e.target.value }))}
       onBlur={() => { if (!state.name.trim()) update(s => ({ ...s, name: 'Maya' })) }}/>
     </div>
-    <p className="note-strip"><LockKeyhole aria-hidden="true"/>No account, no tracking. This sample family lives only in your browser.</p>
+    {/* This said "no account, no tracking, lives only in your browser" for as
+        long as that was true. It is not true any more -- there is an account,
+        and the meadow is kept on a server so it can reach the people in it --
+        so it now says what actually happens, including the one thing nobody
+        else can see. */}
+    <p className="note-strip"><LockKeyhole aria-hidden="true"/>Your meadow is kept for you so your people can reach it. What you are busy with is never part of that: they see the hours, never the labels.</p>
    </section>
 
    <section className="card card-pad flow" style={{ ['--i' as string]: 1 }}>
@@ -134,16 +160,34 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
      <h2 style={{ fontSize: 19 }}><Sprout style={{ width: 18, height: 18, color: 'var(--leaf)' }} aria-hidden="true"/>Your people</h2>
      <span className="small">one patch each</span>
     </div>
-    {state.people.map(person => <div key={person.id} className="row" style={{ boxShadow: 'none', background: 'transparent', padding: '5px 0' }}>
-     <Avatar person={person.id}/>
-     <span className="row-body"><b>{person.name}</b><span>{callsFor(state, person.id).length} flowers growing</span></span>
-     <label className="disc tap" style={{ width: 38, height: 38, boxShadow: 'none', background: 'var(--secondary)' }}>
-      <ImageUp aria-hidden="true"/>
-      <span className="sr-only">Add a photo for {person.name}</span>
-      <input type="file" accept="image/*" className="sr-only" onChange={e => { const file = e.target.files?.[0]; if (file) void setPhoto(person, file) }}/>
-     </label>
-     {state.people.length > 1 && <button type="button" className="disc" style={{ width: 38, height: 38, boxShadow: 'none', background: 'var(--secondary)' }}
-      aria-label={`Remove ${person.name}`} onClick={() => setRemoving(person)}><Trash2 aria-hidden="true"/></button>}
+    {state.people.map(person => <div key={person.id} className="person-line">
+     <div className="row" style={{ boxShadow: 'none', background: 'transparent', padding: '5px 0' }}>
+      <Avatar person={person.id}/>
+      <span className="row-body"><b>{person.name}</b><span>
+       {person.phone ? person.phone : `${callsFor(state, person.id).length} flowers growing`}
+      </span></span>
+      <button type="button" className="disc person-call" data-on={!!person.phone}
+       aria-label={person.phone ? `Change the number for ${person.name}` : `Add a number for ${person.name}`}
+       aria-expanded={numbering === person.id}
+       onClick={() => { const open = numbering === person.id; setNumbering(open ? null : person.id); setNumber(open ? '' : person.phone ?? '') }}>
+       <Phone aria-hidden="true"/>
+      </button>
+      <label className="disc tap" style={{ width: 38, height: 38, boxShadow: 'none', background: 'var(--secondary)' }}>
+       <ImageUp aria-hidden="true"/>
+       <span className="sr-only">Add a photo for {person.name}</span>
+       <input type="file" accept="image/*" className="sr-only" onChange={e => { const file = e.target.files?.[0]; if (file) void setPhoto(person, file) }}/>
+      </label>
+      {state.people.length > 1 && <button type="button" className="disc" style={{ width: 38, height: 38, boxShadow: 'none', background: 'var(--secondary)' }}
+       aria-label={`Remove ${person.name}`} onClick={() => setRemoving(person)}><Trash2 aria-hidden="true"/></button>}
+     </div>
+     {numbering === person.id && <div className="join-row" style={{ paddingBottom: 8 }}>
+      <label className="sr-only" htmlFor={`phone-${person.id}`}>{person.name}&rsquo;s number</label>
+      <input className="input" id={`phone-${person.id}`} type="tel" inputMode="tel" autoComplete="tel"
+       placeholder="+44 7700 900123" value={number} autoFocus
+       onChange={e => setNumber(e.target.value)}
+       onKeyDown={e => { if (e.key === 'Enter') saveNumber(person) }}/>
+      <button type="button" className="btn" onClick={() => saveNumber(person)}>Save</button>
+     </div>}
     </div>)}
     <button type="button" className="btn btn-soft btn-block" onClick={() => setAdding(true)}><UserRoundPlus aria-hidden="true"/>Add Someone</button>
    </section>

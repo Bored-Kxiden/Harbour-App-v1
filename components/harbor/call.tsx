@@ -1,10 +1,12 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Phone, PhoneOff, Plus, Sparkles } from 'lucide-react'
 import { makeId, useHarbor } from '@/lib/harbor/store'
 import { bloomScale, feelings, flowerLibrary, flowerSpec, formatDuration, type Feeling, type FlowerKind } from '@/lib/harbor/model'
 import { Avatar } from './avatar'
 import { FlowerMark, FlowerPicker } from './flowers'
+import { useEscape } from './use-escape'
+import { dial, onDevice, onResume, tap } from '@/lib/harbour/native'
 
 function clock(seconds: number) { return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` }
 
@@ -19,12 +21,42 @@ export function CallFlow({ person, topic, onDone, onCancel }: { person: string; 
  const [flower, setFlower] = useState<FlowerKind>('daisy')
  const [library, setLibrary] = useState(false)
  const [plantedId, setPlantedId] = useState<string>()
+ const [rang, setRang] = useState(false)
+ /* Whether this call goes out through the phone's own dialer or stays the
+    rehearsal it is in a browser: only on a device, and only for somebody whose
+    number is on the list. Worked out here, above the early return further
+    down, because the timer effect needs it and hooks cannot be skipped. */
+ const callable = onDevice() && !!state?.people.find(p => p.id === person)?.phone
 
+ /* Backing out is what Escape, and so Android's back gesture, means here. It is
+    the same door as "never mind": nothing is kept until the flower is planted,
+    and once it is planted it is already saved, so there is nothing to lose
+    either side of that. */
+ useEscape(onCancel)
+
+ /* The clock starts when the talking does. On a rehearsed call that is the
+    moment the screen opens; on a real one it is the moment the dialer is
+    handed the number, or the time spent looking at the Ring button would be
+    counted as time spent together. */
  useEffect(() => {
-  if (step !== 'calling') return
+  if (step !== 'calling' || (callable && !rang)) return
   const timer = setInterval(() => setSeconds(s => s + 1), 1000)
   return () => clearInterval(timer)
- }, [step])
+ }, [step, callable, rang])
+
+ /* Back from the dialer. Whatever happened out there, the next thing Harbour
+    has to say is "how did that feel", so it asks.
+
+    The clock is read through a ref rather than from the effect's own closure:
+    depending on a number that changes every second would tear this listener
+    down and put it back up once a second, and a resume landing in that gap
+    would find nobody listening. */
+ const elapsed = useRef(0)
+ elapsed.current = seconds
+ useEffect(() => {
+  if (!rang || step !== 'calling') return
+  return onResume(() => { setMinutesLong(Math.max(1, Math.round(elapsed.current / 60))); setStep('reflect') })
+ }, [rang, step])
 
  const suggested = useMemo(() => {
   const primary = feelings.find(f => f.id === feeling)?.flower ?? 'daisy'
@@ -36,6 +68,19 @@ export function CallFlow({ person, topic, onDone, onCancel }: { person: string; 
  const who = state.people.find(p => p.id === person) ?? state.people[0]
 
  const endCall = () => { setMinutesLong(Math.max(1, Math.round(seconds / 60))); setStep('reflect') }
+
+ /* Hand the call to the phone and keep counting while it happens.
+    Harbour never places the call itself: it opens the dialer with the number
+    already in it and the person presses the green button, which is the only
+    version of this that needs no permission and no trust. It also means the
+    app cannot know how it went, so coming back is what moves it on -- the
+    timer that was running while they were away becomes the starting guess,
+    and they correct it on the next screen. */
+ const ring = () => {
+  if (!dial(who.phone)) return
+  setRang(true)
+  tap('medium')
+ }
  const chooseFeeling = (next: Feeling) => { setFeeling(next); setFlower(feelings.find(f => f.id === next)?.flower ?? 'daisy') }
  const plant = () => {
   const id = makeId()
@@ -50,13 +95,15 @@ export function CallFlow({ person, topic, onDone, onCancel }: { person: string; 
  return <div className="curtain" role="dialog" aria-modal="true" aria-label={`Call with ${who.name}`}>
   <div className="curtain-sheet">
    {step === 'calling' && <>
-    <p className="eyebrow">Simulated call · no audio</p>
+    <p className="eyebrow">{callable ? (rang ? 'On your phone' : 'Ready to ring') : 'Simulated call · no audio'}</p>
     <span className="halo"><Avatar person={who.id} size="xl"/></span>
     <h1 className="curtain-title">{who.name}</h1>
     <p className="call-timer" role="timer">{clock(seconds)}</p>
     {topic && <p className="small">about <b>{topic.toLowerCase()}</b></p>}
     <p className="curtain-sub">Talk for as long or as little as suits you. Two minutes counts.</p>
-    <button type="button" className="btn btn-block" onClick={endCall}><PhoneOff/>End call</button>
+    {callable && !rang
+     ? <button type="button" className="btn btn-block" onClick={ring}><Phone/>Ring {who.name}</button>
+     : <button type="button" className="btn btn-block" onClick={endCall}><PhoneOff/>{rang ? 'We finished talking' : 'End call'}</button>}
     <button type="button" className="btn btn-quiet" onClick={onCancel}>never mind, back out</button>
    </>}
 

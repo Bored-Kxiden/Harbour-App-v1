@@ -1818,6 +1818,18 @@ html { touch-action: pan-x pan-y }
 .spin { animation: spin 1s linear infinite }
 @keyframes spin { to { transform: rotate(360deg) } }
 
+/* A person on your list, and the number they can be reached on, which unfolds
+   under their row rather than taking them to a screen of their own. The button
+   fills in once there is a number behind it, so the list says at a glance who
+   can actually be rung. */
+.person-line { display: flex; flex-direction: column }
+/* Styled here rather than inline, because the two states differ by background
+   and an inline one would win over both of them. */
+.person-call { width: 38px; height: 38px; box-shadow: none; background: var(--secondary) }
+.person-call[data-on='true'] { background: var(--leaf); color: #FEFCF5 }
+.person-call[data-on='true']:hover { background: var(--leaf-bright) }
+.person-line .row-body span { font-variant-numeric: tabular-nums }
+
 /* Typing in a code somebody read to you, under your own code. */
 .join { display: flex; flex-direction: column; gap: 6px; padding-top: 13px; border-top: 1.5px solid var(--hairline) }
 .join-row { display: flex; gap: 9px }

@@ -56,6 +56,11 @@ export async function pull(userId: string): Promise<HarborState> {
     name: c.label,
     initials: initialsOf(c.label),
     tone: asTone(c.tone),
+    phone: c.phone_e164 ?? undefined,
+    /* Somebody with an account of their own, who has added you back. Anything
+       the app sends -- a note, a seed, a message -- can only reach a person
+       this is true of, so the screens check it before offering. */
+    linked: !!c.linked_user_id,
   }))
   const mine = new Set(people.map(x => x.id))
 
@@ -169,6 +174,18 @@ function changed<T extends { id: string }>(before: T[], after: T[]) {
 export async function push(before: HarborState, after: HarborState, userId: string) {
   const db = supabase()
   const jobs: PromiseLike<unknown>[] = []
+  /* Every query here goes through throwOnError, and that is load-bearing rather
+     than a style choice: without it a rejected insert resolves with an { error }
+     in hand instead of throwing, allSettled below counts it a success, and a
+     write that never landed looks exactly like one that did. The outbox would
+     then stay empty on a phone with no signal, which is the one case it exists
+     for. */
+  const run = (q: { throwOnError: () => PromiseLike<unknown> }) => { jobs.push(q.throwOnError()) }
+  /* Only a person with an account of their own can be written to: notes, seeds
+     and messages are addressed by user id and the database has nowhere to put
+     one aimed at a name on a list. Writes to anybody else are dropped here
+     rather than retried forever by the outbox. */
+  const reachable = new Set(after.people.filter(x => x.linked !== false).map(x => x.id))
 
   /* -------- the profile, and the things that live on it -------- */
   const profileMoved =
@@ -177,7 +194,7 @@ export async function push(before: HarborState, after: HarborState, userId: stri
     before.watching !== after.watching ||
     JSON.stringify(before.toursSeen) !== JSON.stringify(after.toursSeen)
   if (profileMoved) {
-    jobs.push(db.from('profiles').update({
+    run(db.from('profiles').update({
       display_name: after.name, mode: after.mode, setup_done: after.setupDone,
       tours_seen: after.toursSeen, weather: after.weather,
       watching: after.watching || null,
@@ -185,7 +202,7 @@ export async function push(before: HarborState, after: HarborState, userId: stri
   }
 
   if (JSON.stringify(before.settings) !== JSON.stringify(after.settings) || before.sharing !== after.sharing) {
-    jobs.push(db.from('user_settings').update({
+    run(db.from('user_settings').update({
       cues_enabled: after.settings.cuesEnabled,
       walking_minutes: after.settings.walkingMinutes,
       daily_cap: after.settings.dailyCap,
@@ -197,6 +214,42 @@ export async function push(before: HarborState, after: HarborState, userId: stri
     }).eq('user_id', userId))
   }
 
+  /* -------- your list -------- */
+  /* Adding somebody used to live only in this phone's memory: the next pull
+     rebuilt the list from the contacts table and they were simply gone. A
+     person added by name is a real row with no account behind it yet, which is
+     what linked_user_id being null means, and the row is theirs to rename, give
+     a number to, or take off the list again.
+
+     The one thing that cannot be written back is a link. Those are made by
+     redeem_invite, on both sides at once, and a client that could set
+     linked_user_id itself could put anybody's id there. */
+  const list = changed(before.people, after.people)
+  for (const person of list.added) {
+    const was = before.people.find(x => x.id === person.id)
+    if (was?.linked || person.linked) {
+      /* Linked people are keyed by their account id, not by the row's, so the
+         row is found through it and the link itself is left alone. */
+      run(db.from('contacts').update({ label: person.name, tone: person.tone, phone_e164: person.phone ?? null })
+        .eq('user_id', userId).eq('linked_user_id', person.id))
+    } else {
+      run(db.from('contacts').upsert({
+        id: person.id, user_id: userId, linked_user_id: null,
+        label: person.name, tone: person.tone, phone_e164: person.phone ?? null,
+      }))
+    }
+  }
+  if (list.gone.length) {
+    const byId = new Map(before.people.map(x => [x.id, x]))
+    const rows = list.gone.filter(id => !byId.get(id)?.linked)
+    const links = list.gone.filter(id => byId.get(id)?.linked)
+    /* Taking a linked person off your list drops your side of it only. Theirs
+       is theirs to drop, and the link test needs both rows to agree, so the
+       two of you stop sharing the moment either one goes. */
+    if (rows.length) run(db.from('contacts').delete().eq('user_id', userId).in('id', rows))
+    if (links.length) run(db.from('contacts').delete().eq('user_id', userId).in('linked_user_id', links))
+  }
+
   /* -------- your own day -------- */
   /* Blocks have no stable id in the model, so a day is replaced wholesale when
      anything in it moves. Days are small and this is one round trip. */
@@ -205,38 +258,39 @@ export async function push(before: HarborState, after: HarborState, userId: stri
     const now = after.schedules[day]?.you ?? []
     if (JSON.stringify(was) === JSON.stringify(now)) continue
     jobs.push((async () => {
-      await db.from('busy_blocks').delete().eq('user_id', userId).eq('day', day)
+      await db.from('busy_blocks').delete().eq('user_id', userId).eq('day', day).throwOnError()
       if (now.length) {
         await db.from('busy_blocks').insert(now.map(b => ({
           user_id: userId, day, starts_at: b.start, ends_at: b.end,
           label: b.label || null, linked: !!b.linked,
-        })))
+        }))).throwOnError()
       }
     })())
   }
 
   /* -------- notes, seeds, messages, pictures, calls, puzzles -------- */
   const notes = changed(before.notes, after.notes)
-  for (const n of notes.added.filter(x => !x.id.startsWith('seed-'))) {
-    jobs.push(db.from('notes').upsert({
+  for (const n of notes.added.filter(x => !x.id.startsWith('seed-') && (x.scope === 'shared' || reachable.has(x.person)))) {
+    run(db.from('notes').upsert({
       id: n.id, user_id: userId, scope: n.scope,
       audience_id: n.scope === 'personal' ? n.person : null,
       body: n.text, flower: n.flower ?? null, at: n.at,
     }))
   }
-  if (notes.gone.length) jobs.push(db.from('notes').delete().in('id', notes.gone.filter(id => !id.startsWith('seed-'))))
+  if (notes.gone.length) run(db.from('notes').delete().in('id', notes.gone.filter(id => !id.startsWith('seed-'))))
 
-  for (const s of changed(before.seeds, after.seeds).added.filter(x => x.from === 'you')) {
-    jobs.push(db.from('seeds').upsert({
+  for (const s of changed(before.seeds, after.seeds).added.filter(x => x.from === 'you' && reachable.has(x.person))) {
+    run(db.from('seeds').upsert({
       id: s.id, from_id: userId, to_id: s.person, flower: s.flower,
       body: s.text, planted_at: s.at, bloom_at: s.bloomAt,
     }))
   }
 
   for (const [personId, thread] of Object.entries(after.messages)) {
+    if (!reachable.has(personId)) continue
     const was = before.messages[personId] ?? []
     for (const m of changed(was, thread).added.filter(x => x.mine)) {
-      jobs.push(db.from('messages').upsert({
+      run(db.from('messages').upsert({
         id: m.id, from_id: userId, to_id: personId, body: m.text, liked: m.liked ?? false,
         voice_path: m.voice?.mediaId ?? null,
         voice_seconds: m.voice?.seconds ?? null,
@@ -247,14 +301,14 @@ export async function push(before: HarborState, after: HarborState, userId: stri
   }
 
   for (const s of changed(before.snaps, after.snaps).added.filter(x => x.person === 'you')) {
-    jobs.push(db.from('snaps').upsert({
+    run(db.from('snaps').upsert({
       id: s.id, user_id: userId, media_path: s.mediaId ?? null,
       caption: s.caption ?? null, prompt_day: s.promptDay ?? null, at: s.at,
     }))
   }
 
   for (const m of changed(before.moments, after.moments).added) {
-    jobs.push(db.from('moments').upsert({
+    run(db.from('moments').upsert({
       id: m.id, user_id: userId, kind: m.kind, body: m.text,
       minutes: m.minutes ?? null, feeling: m.feeling ?? null,
       flower: m.flower ?? null, topic: m.topic ?? null, at: m.at,
@@ -267,14 +321,14 @@ export async function push(before: HarborState, after: HarborState, userId: stri
 
   const playedBefore = new Set(before.puzzles.map(p => `${p.day}:${p.puzzle}`))
   for (const p of after.puzzles.filter(x => !playedBefore.has(`${x.day}:${x.puzzle}`))) {
-    jobs.push(db.from('puzzle_results').upsert({
+    run(db.from('puzzle_results').upsert({
       user_id: userId, day: p.day, puzzle: p.puzzle, seconds: p.seconds, at: p.at,
     }))
   }
 
   for (const [day, body] of Object.entries(after.games)) {
     if (before.games[day] === body) continue
-    jobs.push(db.from('daily_answers').upsert({ user_id: userId, day, body }))
+    run(db.from('daily_answers').upsert({ user_id: userId, day, body }))
   }
 
   const results = await Promise.allSettled(jobs)

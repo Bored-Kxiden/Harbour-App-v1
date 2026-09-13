@@ -84,6 +84,22 @@ const PALETTES: Record<Weather, Palette> = {
  },
 }
 export const paletteFor = (w: Weather) => PALETTES[w]
+
+/** The single colour at the very top of the sky.
+ *
+ *  The phone's status bar sits directly above the canvas rather than over it,
+ *  so it has to be told what the sky is doing: a fixed tint would clash the
+ *  moment the weather turned or the meadow went to dusk. Dusk here is the same
+ *  multiply paintDusk lays over the whole scene, done once on one colour so
+ *  the strip and the sky under it cannot drift apart.
+ */
+export function skyTop(weather: Weather, night: boolean) {
+ const top = PALETTES[weather].sky[0]
+ if (!night) return top
+ const mix = (base: number, over: number) => Math.round(base * 0.18 + (base * over / 255) * 0.82)
+ const [r, g, b] = [1, 3, 5].map(i => parseInt(top.slice(i, i + 2), 16))
+ return '#' + [mix(r, 58), mix(g, 74), mix(b, 104)].map(v => v.toString(16).padStart(2, '0')).join('')
+}
 export const WEATHER_ORDER: Weather[] = ['clear', 'bright', 'cloudy', 'rain', 'storm']
 
 /* ---------- wind ----------

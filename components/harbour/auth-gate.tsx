@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/harbour/supabase'
+import { done } from '@/lib/harbour/native'
 
 /** Nothing in Harbour works without knowing whose phone this is, so this sits
  *  in front of the app and nothing else renders until it passes.
@@ -23,6 +24,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     const { data: sub } = db.auth.onAuthStateChange((_e, session) => setSignedIn(!!session))
     return () => sub.subscription.unsubscribe()
   }, [])
+
+  /* The native splash is held open rather than hidden on a timer, so the first
+     thing anybody sees is a finished screen and never a white flash. This is
+     the earliest honest moment to drop it: we now know whether to ask who they
+     are or to open their meadow, and either one is a real screen. */
+  useEffect(() => { if (ready) done() }, [ready])
 
   if (!ready) return <Waiting/>
   if (!signedIn) return <SignIn/>

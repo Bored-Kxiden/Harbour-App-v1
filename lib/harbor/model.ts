@@ -1,5 +1,23 @@
 export type Tone = 'green' | 'gold' | 'orange' | 'sky'
-export type Person = { id: string; name: string; initials: string; tone: Tone; photoId?: string; note?: string }
+/** Somebody on your list.
+ *
+ *  `linked` is true once they have an account of their own and the two of you
+ *  have each added the other: only then can anything actually travel between
+ *  you, so it is what the screens check before offering to send something.
+ *  `phone` is theirs to be reached on outside Harbour, and is the number the
+ *  system dialer is handed. */
+export type Person = {
+ id: string; name: string; initials: string; tone: Tone
+ photoId?: string; note?: string; phone?: string; linked?: boolean
+}
+
+/** A phone number the dialer will accept: E.164, the form Postgres also checks.
+    Spaces, dashes and brackets are the way people actually write numbers down,
+    so they are taken off rather than rejected. */
+export function asPhone(raw: string) {
+ const digits = raw.replace(/[^+\d]/g, '')
+ return /^\+[1-9]\d{7,14}$/.test(digits) ? digits : undefined
+}
 
 export type Resolution = 'called' | 'reacted' | 'proposed_later' | 'message' | 'dismissed' | 'played'
 export type Feeling = 'light' | 'warm' | 'steady' | 'tender'

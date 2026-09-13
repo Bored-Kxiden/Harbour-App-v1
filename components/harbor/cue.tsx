@@ -6,6 +6,7 @@ import { buzz, makeId, ring, useHarbor } from '@/lib/harbor/store'
 import { cueEligibility, isFuture, topics, usualCallMinutes, type Moment } from '@/lib/harbor/model'
 import { Avatar } from './avatar'
 import { BackBar } from './back'
+import { useEscape } from './use-escape'
 
 export type Cue = { id: string; person: string }
 
@@ -19,6 +20,14 @@ export function CueOverlay({ cue, onDismiss, onCall }: { cue: Cue; onDismiss: ()
  const [when, setWhen] = useState('')
  const [error, setError] = useState('')
  const settled = useRef(false)
+
+ /* A cue is an invitation, so backing out of one -- Escape, or Android's back
+    gesture -- is not the same as ignoring it: it goes through the same door as
+    the Not now button, which writes down that you kept the time for yourself.
+    Held in a ref because the door itself needs the person, and the person is
+    not known until below. */
+ const back = useRef<() => void>(() => {})
+ useEscape(() => back.current())
 
  useEffect(() => {
   buzz()
@@ -38,6 +47,7 @@ export function CueOverlay({ cue, onDismiss, onCall }: { cue: Cue; onDismiss: ()
   if (!settled.current) log({ id: `dismiss-${cue.id}`, at: new Date().toISOString(), person: person.id, kind: 'dismissed', text: 'Kept a little space for yourself.', source: 'walking_stop', cueId: cue.id })
   onDismiss()
  }
+ back.current = leave
 
  return <div className="curtain" role="dialog" aria-modal="true" aria-label={`A quiet moment to call ${person.name}`}>
   <div className="curtain-sheet">

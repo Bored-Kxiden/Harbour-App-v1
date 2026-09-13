@@ -55,8 +55,28 @@ The app is a normal installed Android app: its own icon, its own window, no
 browser chrome, no address bar, works offline. Inside that window it runs the
 interface as-is rather than a second implementation of it, so what you approved
 in testing is what ships, to the pixel. The parts a web page genuinely cannot
-do -- placing a call, ringing a cue, sensing that a walk has ended -- are
-Android code that the interface calls into.
+do live in `lib/harbour/native.ts`, and every one of them is a no-op in a
+browser so `npm run dev` behaves exactly as it always did:
+
+- **The back gesture.** Closes whatever overlay is open, then returns to home,
+  then puts the app in the background rather than closing it. Overlays already
+  close on Escape, so the gesture is translated into the key they all answer.
+- **The status bar.** Painted to match the top of the sky the meadow is
+  drawing, and its icons flip when that sky goes to dusk.
+- **The splash screen.** Held open until the first real screen has painted,
+  rather than hidden on a timer that guesses how long that takes.
+- **The dialer.** Somebody with a number on your list can be rung from the call
+  screen: Harbour hands the number to the phone's own dialer and you press the
+  green button. Deliberately `ACTION_DIAL` and not `ACTION_CALL` -- dialling for
+  somebody needs no permission at all, and asking for the phone and call-log
+  permission is the worst place to spend a new user's trust. It also means the
+  app cannot know how the call went, so it asks you when you come back.
+- **Haptics**, for a cue arriving and a call going out.
+
+**Not built yet:** notifications that arrive when the app is closed. Slack Tide
+only rings while Harbour is open. Doing it properly means a scheduled local
+notification and, for the walk detection, a foreground service -- a real piece
+of Android work rather than a plugin call, and worth its own pass.
 
 ## One thing to do once, in the Supabase dashboard
 
@@ -91,12 +111,31 @@ reading the policies. The first of those tests is what found that the sharing
 check could never be true: a policy expression runs as the calling user, so
 reading another person's settings row from inside one always failed silently.
 
-### What has not been checked yet
+### What has and has not been checked
 
-The app's own calls to Supabase have never run: this project was assembled in a
-sandbox whose network policy refuses connections to supabase.co, so sign-in,
-pulling a meadow and pushing a change are written and type-checked but unproven.
-They are the first thing to exercise on a real device.
+The **shape** of what the app reads and writes has been walked end to end, in a
+real browser against a stubbed Supabase: opening past the sign-in gate, the
+people list, adding somebody, giving them a number, and the exact request that
+goes back to `contacts` for a linked person versus an unlinked one.
+
+What has **not** run is the network itself. This project was assembled in a
+sandbox whose policy refuses connections to supabase.co, so real sign-in, a real
+`pull()` and a real `push()` against the live project are written, type-checked
+and shape-verified but never actually sent. They are the first thing to exercise
+on a device.
+
+Three things worth knowing, each found while wiring the native pieces up:
+
+- `push()` reported every write as a success. A failed Supabase query resolves
+  with an `{ error }` rather than rejecting, so the check for failures could
+  never see one and the offline outbox stayed empty forever. Every write now
+  goes through `throwOnError`.
+- `load()` asked the server who the signed-in user was, which threw on a phone
+  with no signal -- before the cached copy that exists for exactly that case was
+  ever reached. It now reads the session already on the device.
+- Somebody added by name lived only in that phone's memory: the next pull
+  rebuilt the list from `contacts` and they were gone. Adding, renaming and
+  removing people now write back.
 
 ### Changing the schema
 

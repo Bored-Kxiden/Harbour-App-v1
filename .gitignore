@@ -31,3 +31,6 @@ android/local.properties
 .vscode/
 .DS_Store
 *.log
+
+# TypeScript build cache. Rebuilt on every typecheck, and nobody needs it.
+tsconfig.tsbuildinfo
