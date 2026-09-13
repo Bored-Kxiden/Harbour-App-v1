@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# the Next build and its static export (Capacitor copies `out` into the APK,
+# so both are produced by `npm run sync` and neither belongs in git)
+.next/
+out/
+
+# the copy of the web build Capacitor keeps inside the Android project
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/capacitor-cordova-android-plugins/
+
+# Android build output and local machine paths
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# keys. The anon key is safe to ship; the service role key must never be here.
+.env
+.env.local
+
+# editors and OS
+.idea/
+.vscode/
+.DS_Store
+*.log
