@@ -80,11 +80,42 @@ browser so `npm run dev` behaves exactly as it always did:
   permission is the worst place to spend a new user's trust. It also means the
   app cannot know how the call went, so it asks you when you come back.
 - **Haptics**, for a cue arriving and a call going out.
+- **Choosing somebody from Contacts.** Adding a person in Your people, or
+  giving an existing one a number, can pull from the phone's own address book
+  instead of typing. This is `ContactsPickerPlugin.java`, the one piece of
+  native code that lives directly in the app rather than in a package -- see
+  "What the phone is asked for" below for why it needs no permission at all.
 
 **Not built yet:** notifications that arrive when the app is closed. Slack Tide
 only rings while Harbour is open. Doing it properly means a scheduled local
 notification and, for the walk detection, a foreground service -- a real piece
 of Android work rather than a plugin call, and worth its own pass.
+
+### What the phone is asked for
+
+Four permissions, and the reasoning for each is worth writing down rather than
+just declaring:
+
+- **Internet.** Every screen depends on it; nothing here works offline forever.
+- **Camera, and microphone.** Instants and voice notes both call the browser's
+  own `getUserMedia()`, which is real and works in the desktop preview -- but on
+  a phone, Android's WebView answers that call by requesting the matching
+  Android permission at runtime on its own, and it can only request a
+  permission this app's manifest has already declared. Undeclared, that request
+  is silently refused with no dialog at all, so both features would have
+  quietly done nothing on a real phone despite passing every browser
+  walkthrough this project has run. Declaring `CAMERA` and `RECORD_AUDIO` is
+  what lets Android's own permission prompt appear the first time either
+  feature is actually used.
+- **Nothing for contacts.** Choosing somebody from Contacts does not hold
+  `READ_CONTACTS`, and does not ask for it. `ContactsPickerPlugin` hands the
+  moment over to the phone's own Contacts app (`ACTION_PICK`) rather than
+  reading the address book itself, the same way the dialer hands a call to the
+  phone's own dialer rather than placing it. What comes back carries its own
+  one-time read grant for the single number that was tapped; Harbour never
+  sees the rest of the address book, and cannot read a contact nobody chose.
+  Asking for the whole address book to add one person would be the same shape
+  of over-ask the dialer already turned down, for the same reason.
 
 ## Three things to do once, in the Supabase dashboard
 
@@ -164,10 +195,21 @@ people list, adding somebody, giving them a number, and the exact request that
 goes back to `contacts` for a linked person versus an unlinked one.
 
 What has **not** run is the network itself. This project was assembled in a
-sandbox whose policy refuses connections to supabase.co, so real sign-in, a real
-`pull()` and a real `push()` against the live project are written, type-checked
-and shape-verified but never actually sent. They are the first thing to exercise
-on a device.
+sandbox whose policy refuses connections to supabase.co, so a real `push()`
+against the live project is written, type-checked and shape-verified but never
+actually sent. Sign-up, the `handle_new_user` trigger, and `signInWithPassword`
+have since been confirmed against the live project from a real device; `push()`
+and pairing two accounts with an invite code are the remaining things to
+exercise there.
+
+The contact picker (`ContactsPickerPlugin.java`) is newer still and unverified
+in the same way: it typechecks, its Java was written against Capacitor's own
+plugin source rather than guessed at, and the manifest was checked for
+well-formed XML -- but no Android SDK is reachable from this sandbox to compile
+or run it, so the first real test of it is a tap on a device. If it fails, the
+System Contacts app not being resolvable is the most likely reason to check
+first, though that should not happen: `ACTION_PICK` against a core content
+provider does not depend on any other app being installed.
 
 Three things worth knowing, each found while wiring the native pieces up:
 

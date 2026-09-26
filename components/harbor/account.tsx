@@ -1,11 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Camera, ChevronRight, GraduationCap, House, ImageUp, LockKeyhole, Maximize, Minimize, Moon, Phone, Play, ShieldCheck, Sprout, Sun, SunMoon, Trash2, UserRoundPlus, Waves } from 'lucide-react'
+import { BookUser, Camera, ChevronRight, GraduationCap, House, ImageUp, LockKeyhole, Maximize, Minimize, Moon, Phone, Play, ShieldCheck, Sprout, Sun, SunMoon, Trash2, UserRoundPlus, Waves } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { chime, makeId, useHarbor } from '@/lib/harbor/store'
 import { clearMedia, saveMedia } from '@/lib/harbor/media'
 import { activePacts, asPhone, callsFor, initialsOf, localDay, rollSnapWindow, themes, type Mode, type Person, type Tone } from '@/lib/harbor/model'
+import { onDevice, pickContact } from '@/lib/harbour/native'
 import { Avatar } from './avatar'
 import { Sprig } from './sprigs'
 
@@ -35,6 +36,9 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
  const [switchTo, setSwitchTo] = useState<Mode | null>(null)
  const [adding, setAdding] = useState(false)
  const [newName, setNewName] = useState('')
+ /* Set only by a successful contact pick, so the manual "type a name" path
+    is unchanged for anyone not on a device or not picking. */
+ const [pickedPhone, setPickedPhone] = useState('')
  const [removing, setRemoving] = useState<Person | null>(null)
  const [pactFor, setPactFor] = useState<Person | null>(null)
  /* Whose number is open for editing, and what has been typed into it so far. */
@@ -80,9 +84,25 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
      behind them yet: they sit on the list and can be given a number to ring,
      and everything else waits until they join with a code. */
   const id = makeId()
-  update(s => ({ ...s, people: [...s.people, { id, name, initials: initialsOf(name), tone: tones[s.people.length % tones.length], linked: false }], messages: { ...s.messages, [id]: [] } }))
-  setNewName(''); setAdding(false)
-  toast.success(`${name} is in your list now.`)
+  /* A contact's number rarely carries a country code, and asPhone insists on
+     one -- the same rule the manual field already enforces. Rather than
+     silently drop what was picked, it still lands as a name; the toast says
+     why the number did not come with it, so it is one edit away instead of a
+     mystery. */
+  const phone = asPhone(pickedPhone.trim())
+  update(s => ({ ...s, people: [...s.people, { id, name, initials: initialsOf(name), tone: tones[s.people.length % tones.length], linked: false, phone }], messages: { ...s.messages, [id]: [] } }))
+  setNewName(''); setPickedPhone(''); setAdding(false)
+  if (pickedPhone.trim() && !phone) toast.success(`${name} is in your list now. Their number needs a country code -- add it from the phone icon.`)
+  else toast.success(phone ? `${name} is in your list now, ready to ring.` : `${name} is in your list now.`)
+ }
+ /* Handing this to the system Contacts app rather than reading the address
+    book ourselves. The dialog stays exactly as it is for anyone typing a
+    name; this only ever pre-fills it. */
+ const chooseFromContacts = async () => {
+  const picked = await pickContact()
+  if (!picked) return
+  setNewName(picked.name)
+  setPickedPhone(picked.phone)
  }
  const removePerson = (person: Person) => {
   update(s => ({
@@ -180,13 +200,19 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
       {state.people.length > 1 && <button type="button" className="disc" style={{ width: 38, height: 38, boxShadow: 'none', background: 'var(--secondary)' }}
        aria-label={`Remove ${person.name}`} onClick={() => setRemoving(person)}><Trash2 aria-hidden="true"/></button>}
      </div>
-     {numbering === person.id && <div className="join-row" style={{ paddingBottom: 8 }}>
-      <label className="sr-only" htmlFor={`phone-${person.id}`}>{person.name}&rsquo;s number</label>
-      <input className="input" id={`phone-${person.id}`} type="tel" inputMode="tel" autoComplete="tel"
-       placeholder="+44 7700 900123" value={number} autoFocus
-       onChange={e => setNumber(e.target.value)}
-       onKeyDown={e => { if (e.key === 'Enter') saveNumber(person) }}/>
-      <button type="button" className="btn" onClick={() => saveNumber(person)}>Save</button>
+     {numbering === person.id && <div className="flow" style={{ paddingBottom: 8, gap: 6 }}>
+      <div className="join-row">
+       <label className="sr-only" htmlFor={`phone-${person.id}`}>{person.name}&rsquo;s number</label>
+       <input className="input" id={`phone-${person.id}`} type="tel" inputMode="tel" autoComplete="tel"
+        placeholder="+44 7700 900123" value={number} autoFocus
+        onChange={e => setNumber(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') saveNumber(person) }}/>
+       <button type="button" className="btn" onClick={() => saveNumber(person)}>Save</button>
+      </div>
+      {onDevice() && <button type="button" className="btn btn-quiet" style={{ alignSelf: 'flex-start', minHeight: 34, padding: '0 4px', fontSize: 13 }}
+       onClick={async () => { const picked = await pickContact(); if (picked?.phone) setNumber(picked.phone) }}>
+       <BookUser aria-hidden="true" style={{ width: 15, height: 15 }}/>or choose from contacts
+      </button>}
      </div>}
     </div>)}
     <button type="button" className="btn btn-soft btn-block" onClick={() => setAdding(true)}><UserRoundPlus aria-hidden="true"/>Add Someone</button>
@@ -327,14 +353,25 @@ export function AccountScreen({ navigate }: { navigate: (page: string) => void }
     <ChevronRight className="caret" aria-hidden="true"/>
    </button>
    <button type="button" className="btn btn-soft btn-block" style={{ ['--i' as string]: 7 }} onClick={() => setResetOpen(true)}>Start the Demo Fresh</button>
-   <p className="fineprint" style={{ ['--i' as string]: 8 }}>Harbor · a little closer, every day.<br/>Local demo. No real calls, messages, or calendar access.</p>
+   {/* This said "local demo, no real calls... access" from the very first
+       build, when it was true. It is not true in either half any more: the
+       account is real, and the dialer and the contact picker both reach the
+       phone underneath it. Left as it was, it would sit two screens away from
+       Choose from Contacts and call it a lie. */}
+   <p className="fineprint" style={{ ['--i' as string]: 8 }}>Harbor · a little closer, every day.<br/>Calls go through your phone&rsquo;s own dialer. Nothing is placed, read, or recorded by the app itself.</p>
   </div>
 
-  <Dialog open={adding} onOpenChange={value => { setAdding(value); if (!value) setNewName('') }}><DialogContent>
+  <Dialog open={adding} onOpenChange={value => { setAdding(value); if (!value) { setNewName(''); setPickedPhone('') } }}><DialogContent>
    <DialogHeader><DialogTitle>Who else belongs here?</DialogTitle><DialogDescription>They get their own patch of the meadow. Every call you have with them grows a flower in it.</DialogDescription></DialogHeader>
-   <div><label className="label" htmlFor="new-person">Their name</label>
+   {onDevice() && <button type="button" className="btn btn-soft btn-block" onClick={() => void chooseFromContacts()}>
+    <BookUser aria-hidden="true"/>Choose from Contacts
+   </button>}
+   <div><label className="label" htmlFor="new-person">{onDevice() ? 'Or type their name' : 'Their name'}</label>
     <input className="input" id="new-person" maxLength={40} value={newName} placeholder="Nani…" autoComplete="off" spellCheck={false}
      onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPerson() } }}/></div>
+   {pickedPhone && <div><label className="label" htmlFor="new-person-phone">Their number, from that contact</label>
+    <input className="input" id="new-person-phone" type="tel" inputMode="tel" value={pickedPhone} spellCheck={false}
+     onChange={e => setPickedPhone(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPerson() } }}/></div>}
    <button type="button" className="btn btn-block" disabled={!newName.trim()} onClick={addPerson}><UserRoundPlus aria-hidden="true"/>Give Them a Patch</button>
   </DialogContent></Dialog>
 

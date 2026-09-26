@@ -38,4 +38,26 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Instants (the camera screen) and voice notes both call the web
+         getUserMedia() API. Capacitor's WebView answers that call by asking
+         Android for CAMERA / RECORD_AUDIO at runtime on its own — see
+         BridgeWebChromeClient.onPermissionRequest — but only for a permission
+         this manifest has already declared. Undeclared, that runtime request
+         is auto-denied with no dialog at all, so both features would fail
+         silently on a real phone despite working in every browser preview.
+         MODIFY_AUDIO_SETTINGS is a normal permission Android grants on
+         install; it rides along with RECORD_AUDIO because the WebView asks
+         for both together. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- No READ_CONTACTS here on purpose. Adding somebody from the address
+         book goes through ContactsPickerPlugin, which delegates to the
+         system Contacts app (ACTION_PICK) instead of reading the address
+         book itself — see that file for why. -->
 </manifest>

@@ -1,6 +1,6 @@
 'use client'
 import { App } from '@capacitor/app'
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
@@ -11,6 +11,31 @@ import { StatusBar, Style } from '@capacitor/status-bar'
  *  as it always did and none of it has to be guarded at the call site.
  */
 export const onDevice = () => Capacitor.isNativePlatform()
+
+/** The one native piece that lives in this app rather than in a package: a
+ *  single contact, handed over by the system Contacts app itself rather than
+ *  read out of one Harbour asked to see. See ContactsPickerPlugin.java for
+ *  why this needs no READ_CONTACTS permission at all -- the short version is
+ *  that ACTION_PICK delegates to an app the phone already trusts, and what it
+ *  hands back carries its own one-time read grant. */
+interface HarbourContactsPlugin {
+  pickContact(): Promise<{ name: string; phone: string }>
+}
+const HarbourContacts = registerPlugin<HarbourContactsPlugin>('HarbourContacts')
+
+/** Somebody chosen from the phone's own address book: their name and the one
+ *  number they were picked on. `undefined` for a cancelled picker, which is
+ *  not an error -- changing your mind partway through is not a failure, it is
+ *  the same "never mind" every other sheet in the app answers to.
+ */
+export async function pickContact(): Promise<{ name: string; phone: string } | undefined> {
+  if (!onDevice()) return undefined
+  try {
+    return await HarbourContacts.pickContact()
+  } catch {
+    return undefined
+  }
+}
 
 /** Android's back gesture, given the meaning it has in every other app.
  *
